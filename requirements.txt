@@ -7,3 +7,4 @@ eth-account
 eth-keys
 eth-utils
 subprocess
+safe-eth-py   

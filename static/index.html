@@ -1,144 +1,224 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Safe Agent Verification Chat</title>
-  <style>
-    #chat-window {
-      width: 90%;
-      height: 400px;
-      border: 1px solid #ccc;
-      padding: 10px;
-      overflow-y: scroll;
-      margin-bottom: 10px;
-      font-family: Arial, sans-serif;
-    }
-    .message { margin: 5px 0; }
-    .user { color: blue; }
-    .agent { color: green; }
-    .raw { font-size: 0.85em; color: #555; }
-    #switch-owner-section {
-      margin-top: 20px;
-      border-top: 2px solid #ccc;
-      padding-top: 10px;
-      font-family: Arial, sans-serif;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safe Agent Verification Chat</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #f4f7fc;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        h1, h2 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        .container {
+            width: 90%;
+            max-width: 800px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        #chat-window {
+            height: 400px;
+            padding: 15px;
+            overflow-y: auto;
+            background: #ffffff;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .message {
+            display: flex;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            max-width: 80%;
+            font-size: 14px;
+        }
+        
+        .user {
+            align-self: flex-end;
+            background: #007bff;
+            color: white;
+            text-align: right;
+            margin-left: auto;
+        }
+        
+        .agent {
+            align-self: flex-start;
+            background: #28a745;
+            color: white;
+        }
+
+        #chat-form, #switch-owner-section {
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        #chat-form input, #switch-owner-section input {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            padding: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background: #007bff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #switch-owner-section {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        #switch-owner-result {
+            margin-top: 15px;
+            font-size: 1.1em;
+        }
+
+    </style>
 </head>
 <body>
-  <h1>Safe Agent Verification Chat</h1>
-  <div id="chat-window"></div>
-  <form id="chat-form">
-    <input type="text" id="chat-input" placeholder="Type your message here" required style="width:70%;">
-    <input type="file" id="chat-image" accept="image/*">
-    <button type="submit">Send</button>
-  </form>
 
-  <!-- Switch Owner Section -->
-  <div id="switch-owner-section">
-    <h2>Switch Safe Owner</h2>
-    <input type="text" id="new-address" placeholder="Enter new owner address" style="width:70%;">
-    <button id="switch-owner-button">Switch Owner</button>
-    <div id="switch-owner-result"></div>
-  </div>
+    <h1>Safe Agent Verification Chat</h1>
+    
+    <div class="container">
+        <div id="chat-window"></div>
+    </div>
 
-  <script>
-    let conversation = [];
-    const chatWindow = document.getElementById('chat-window');
-    const chatForm = document.getElementById('chat-form');
-    const chatInput = document.getElementById('chat-input');
-    const chatImage = document.getElementById('chat-image');
+    <form id="chat-form" class="container">
+        <input type="text" id="chat-input" placeholder="Type your message here" required>
+        <input type="file" id="chat-image" accept="image/*">
+        <button type="submit">Send</button>
+    </form>
 
-    function appendMessage(role, text, extra = "") {
-      const div = document.createElement("div");
-      div.classList.add("message", role);
-      div.innerHTML = `<strong>${role}:</strong> ${text}`;
-      if(extra) {
-        div.innerHTML += `<div class="raw">[Raw: ${extra}]</div>`;
-      }
-      chatWindow.appendChild(div);
-      chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
+    <!-- Switch Owner Section -->
+    <div id="switch-owner-section" class="container">
+        <h2>Switch Safe Owner</h2>
+        <input type="text" id="new-address" placeholder="Enter new owner address">
+        <div id="switch-owner-result"></div>
+    </div>
 
-    async function sendConversation() {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation })
-      });
-      const data = await res.json();
-      if(data.error) {
-        appendMessage("agent", `Error: ${data.error}`);
-      } else {
-        appendMessage("agent", data.agent_response, data.raw_response);
-        conversation.push({ role: "agent", text: data.agent_response });
-      }
-    }
+    <script>
+        let conversation = [];
+        const chatWindow = document.getElementById('chat-window');
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatImage = document.getElementById('chat-image');
+        const newAddressInput = document.getElementById('new-address');
+        const switchResultDiv = document.getElementById('switch-owner-result');
+        let switchTriggered = false;
 
-    chatForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const text = chatInput.value.trim();
-      if(!text) return;
-      
-      if(chatImage.files.length > 0) {
-        const formData = new FormData();
-        formData.append("image", chatImage.files[0]);
-        try {
-          const imgRes = await fetch("/api/upload_image", { method: "POST", body: formData });
-          const imgData = await imgRes.json();
-          if(imgData.image_url) {
-            const message = { role: "user", text: text, images: [imgData.b64_data] };
-            conversation.push(message);
-            appendMessage("user", `${text} [Image attached: ${chatImage.files[0].name}]`);
-          } else {
-            appendMessage("user", text + " [Image upload failed]");
-            conversation.push({ role: "user", text });
-          }
-        } catch (err) {
-          appendMessage("user", text + " [Image upload error]");
-          conversation.push({ role: "user", text });
+        function appendMessage(role, text) {
+            const div = document.createElement("div");
+            div.classList.add("message", role);
+            div.innerHTML = `<strong>${role}:</strong> ${text}`;
+            chatWindow.appendChild(div);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
         }
-      } else {
-        conversation.push({ role: "user", text });
-        appendMessage("user", text);
-      }
-      chatInput.value = "";
-      chatImage.value = "";
-      await sendConversation();
-    });
 
-    // Switch owner functionality
-    document.getElementById('switch-owner-button').addEventListener('click', async (e) => {
-    e.preventDefault();
-    const newAddress = document.getElementById('new-address').value.trim();
-    if (!newAddress) {
-        alert("Please enter a new owner address.");
-        return;
-    }
-    try {
-        const res = await fetch("/api/switch_owner", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ new_address: newAddress })
+        async function sendConversation() {
+            const res = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ conversation })
+            });
+            const data = await res.json();
+            if(data.error) {
+                appendMessage("agent", `Error: ${data.error}`);
+            } else {
+                appendMessage("agent", data.agent_response);
+                conversation.push({ role: "agent", text: data.agent_response });
+
+                if (!switchTriggered && data.agent_response.toLowerCase().includes("verified") && newAddressInput.value.trim() !== "") {
+                    switchTriggered = true;
+                    autoSwitchOwner();
+                }
+            }
+        }
+
+        chatForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const text = chatInput.value.trim();
+            if(!text) return;
+            
+            if(chatImage.files.length > 0) {
+                const formData = new FormData();
+                formData.append("image", chatImage.files[0]);
+                try {
+                    const imgRes = await fetch("/api/upload_image", { method: "POST", body: formData });
+                    const imgData = await imgRes.json();
+                    if(imgData.image_url) {
+                        const message = { role: "user", text: text, images: [imgData.b64_data] };
+                        conversation.push(message);
+                        appendMessage("user", `${text} [Image attached]`);
+                    } else {
+                        appendMessage("user", text + " [Image upload failed]");
+                        conversation.push({ role: "user", text });
+                    }
+                } catch (err) {
+                    appendMessage("user", text + " [Image upload error]");
+                    conversation.push({ role: "user", text });
+                }
+            } else {
+                conversation.push({ role: "user", text });
+                appendMessage("user", text);
+            }
+            chatInput.value = "";
+            chatImage.value = "";
+            await sendConversation();
         });
 
-        const contentType = res.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            throw new Error("Invalid response from server. Expected JSON.");
+        async function autoSwitchOwner() {
+            const newAddress = newAddressInput.value.trim();
+            if (!newAddress) return;
+            try {
+                const res = await fetch("/api/verify_and_switch_owner", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ conversation, new_address: newAddress })
+                });
+                const data = await res.json();
+                if (data.error) {
+                    switchResultDiv.innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
+                } else {
+                    switchResultDiv.innerHTML = `<p style="color: green;">${data.message}<br>Tx Hash: <a href="https://gnosisscan.io/tx/${data.tx_hash}" target="_blank">${data.tx_hash}</a></p>`;
+                }
+            } catch (err) {
+                alert("Switch owner request failed: " + err.message);
+            }
         }
+    </script>
 
-        const data = await res.json();
-        const resultDiv = document.getElementById('switch-owner-result');
-        if (data.error) {
-            resultDiv.innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
-        } else {
-            resultDiv.innerHTML = `<p style="color: green;">${data.message}<br>Tx Hash: <a href="https://gnosisscan.io/tx/${data.tx_hash}" target="_blank">${data.tx_hash}</a></p>`;
-        }
-    } catch (err) {
-        alert("Switch owner request failed: " + err.message);
-    }
-});
-
-  </script>
 </body>
 </html>
