@@ -109,29 +109,36 @@
 
     // Switch owner functionality
     document.getElementById('switch-owner-button').addEventListener('click', async (e) => {
-      e.preventDefault();
-      const newAddress = document.getElementById('new-address').value.trim();
-      if (!newAddress) {
+    e.preventDefault();
+    const newAddress = document.getElementById('new-address').value.trim();
+    if (!newAddress) {
         alert("Please enter a new owner address.");
         return;
-      }
-      try {
+    }
+    try {
         const res = await fetch("/api/switch_owner", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ new_address: newAddress })
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_address: newAddress })
         });
+
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            throw new Error("Invalid response from server. Expected JSON.");
+        }
+
         const data = await res.json();
         const resultDiv = document.getElementById('switch-owner-result');
-        if(data.error) {
-          resultDiv.innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
+        if (data.error) {
+            resultDiv.innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
         } else {
-          resultDiv.innerHTML = `<p style="color: green;">${data.message}<br>Tx Hash: ${data.tx_hash}</p>`;
+            resultDiv.innerHTML = `<p style="color: green;">${data.message}<br>Tx Hash: <a href="https://gnosisscan.io/tx/${data.tx_hash}" target="_blank">${data.tx_hash}</a></p>`;
         }
-      } catch (err) {
-        alert("Switch owner request failed: " + err);
-      }
-    });
+    } catch (err) {
+        alert("Switch owner request failed: " + err.message);
+    }
+});
+
   </script>
 </body>
 </html>

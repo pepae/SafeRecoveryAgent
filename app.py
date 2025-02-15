@@ -1,8 +1,20 @@
-import os, re, json, base64, requests, io
+import os, re, json, base64, requests, io, sys, subprocess
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image  # requires Pillow
 from web3 import Web3
+from eth_account.messages import encode_defunct
+from eth_keys import keys
+from eth_utils import decode_hex
+from eth_utils import to_bytes
+# --- Import safe-eth-py ---
+from safe_eth.safe import Safe
+from web3.middleware import geth_poa_middleware
+from safe_eth.eth import EthereumClient
+
+
+
+
 
 app = Flask(__name__, static_folder="static")
 UPLOAD_FOLDER = "uploads"
@@ -108,83 +120,76 @@ with open("abi.json") as f:
 # The Safe address on gnosis chain
 SAFE_ADDRESS = "0xf3939FE058981eF1AC0CD5C316E6270F5C65F591"
 # Sentinel for Safe's linked list
-SENTINEL = "0x0000000000000000000000000000000000000001"
+SENTINEL_OWNERS = "0x0000000000000000000000000000000000000001"
 
 # Connect to Gnosis Chain RPC
 w3 = Web3(Web3.HTTPProvider("https://rpc.gnosischain.com"))
+# (Old direct web3 contract kept for reference)
 safe_contract = w3.eth.contract(address=SAFE_ADDRESS, abi=safe_abi)
 
 @app.route("/api/switch_owner", methods=["POST"])
-def switch_owner():
-    """
-    Switch out the current (human) owner of the Safe by calling swapOwner.
-    1. Retrieve current owners via getOwners() and convert them to checksum addresses.
-    2. Determine the human owner (the one not equal to AGENT_ADDRESS) and its previous owner:
-         - If the human owner is the first element, use SENTINEL.
-         - Otherwise, use the owner immediately before it.
-       (This reflects the circular linked list stored in the Safe.)
-    3. Check that the new owner address (from the payload) is valid and not already an owner.
-    4. Build and simulate the transaction, then sign and send it.
-    Extensive logging is provided.
-    """
+def switch_owner_route():
     data = request.get_json()
     raw_new_owner = data.get("new_address")
     if not raw_new_owner:
         return jsonify({"error": "No new address provided."}), 400
+
     try:
         new_owner = Web3.to_checksum_address(raw_new_owner)
     except Exception as e:
         return jsonify({"error": f"Invalid new address: {e}"}), 400
 
     try:
-        owners = safe_contract.functions.getOwners().call()
+        # Create an EthereumClient instance
+        ethereum_client = EthereumClient("https://rpc.gnosischain.com")
+        # Create a Safe instance using safe-eth-py
+        safe_instance = Safe(SAFE_ADDRESS, ethereum_client)
+        owners = safe_instance.retrieve_owners()
         owners = [Web3.to_checksum_address(o) for o in owners]
-        print("DEBUG: Current owners from getOwners():", owners)
         if len(owners) < 2:
-            return jsonify({"error": "Not enough owners in Safe."}), 400
+            return jsonify({"error": "Safe must have at least 2 owners."}), 400
 
         agent_addr = Web3.to_checksum_address(AGENT_ADDRESS)
-        human_owner = None
-        prev_owner = None
-        for i, owner in enumerate(owners):
-            if owner != agent_addr:
-                human_owner = owner
-                prev_owner = SENTINEL if i == 0 else owners[i-1]
-                break
+        if agent_addr not in owners:
+            return jsonify({"error": "Agent is not an owner."}), 400
 
-        print("DEBUG: Chosen human owner:", human_owner)
-        print("DEBUG: Determined previous owner:", prev_owner)
-        if human_owner is None:
-            return jsonify({"error": "No human owner found."}), 400
+        # Identify the human owner (first owner not equal to agent)
+        human_owner = next((o for o in owners if o != agent_addr), None)
+        if not human_owner:
+            return jsonify({"error": "Human owner not found."}), 400
 
         if new_owner in owners:
             return jsonify({"error": "New owner is already an owner."}), 400
 
-        nonce = w3.eth.get_transaction_count(agent_addr)
-        print("DEBUG: Nonce for AGENT_ADDRESS:", nonce)
+        # Determine prevOwner: if human_owner is first, use sentinel; else previous owner
+        idx = owners.index(human_owner)
+        prev_owner = Web3.to_checksum_address(SENTINEL_OWNERS) if idx == 0 else owners[idx - 1]
 
-        tx_obj = safe_contract.functions.swapOwner(prev_owner, human_owner, new_owner)
-        print("DEBUG: Transaction object (tx_obj) from swapOwner call:", tx_obj)
-        tx = tx_obj.build_transaction({
-            "chainId": w3.eth.chain_id,
-            "gas": 200000,
-            "gasPrice": w3.eth.gas_price,
-            "nonce": nonce,
+        # Build the swapOwner call data using _encode_transaction_data()
+        swap_owner_data = safe_instance.contract.functions.swapOwner(
+            prev_owner, human_owner, new_owner
+        )._encode_transaction_data()
+
+        # Build the multisig transaction (minimal gas settings for simplicity)
+        safe_tx = safe_instance.build_multisig_tx(
+            to=SAFE_ADDRESS,
+            value=0,
+            data=Web3.to_bytes(hexstr=swap_owner_data),
+            operation=0,
+            safe_tx_gas=0,
+            base_gas=0,
+            gas_price=0,
+            gas_token=Web3.to_checksum_address("0x0000000000000000000000000000000000000000"),
+            refund_receiver=Web3.to_checksum_address("0x0000000000000000000000000000000000000000")
+        )
+
+        # Sign and execute the transaction using the agent's private key
+        safe_tx.sign(AGENT_PRIVATE_KEY)
+        tx_hash, _ = safe_tx.execute(tx_sender_private_key=AGENT_PRIVATE_KEY)
+        return jsonify({
+            "message": "Transaction submitted.",
+            "tx_hash": Web3.to_hex(tx_hash)
         })
-        print("DEBUG: Built transaction object:", tx)
-
-        try:
-            simulation = w3.eth.call(tx)
-            print("DEBUG: Simulation result:", simulation)
-        except Exception as sim_error:
-            print("DEBUG: Simulation (eth.call) failed:", sim_error)
-            return jsonify({"error": f"Transaction simulation failed: {sim_error}"}), 500
-
-        signed_tx = w3.eth.account.sign_transaction(tx, private_key=AGENT_PRIVATE_KEY)
-        raw_tx = signed_tx.raw_transaction if hasattr(signed_tx, "raw_transaction") else signed_tx.rawTransaction
-        tx_hash = w3.eth.send_raw_transaction(raw_tx)
-        print("DEBUG: Transaction hash:", tx_hash.hex())
-        return jsonify({"message": "Switch owner transaction sent.", "tx_hash": tx_hash.hex()})
     except Exception as e:
         return jsonify({"error": f"Transaction failed: {e}"}), 500
 
