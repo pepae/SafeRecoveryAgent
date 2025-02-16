@@ -1,5 +1,7 @@
 # Safe Agent Verification Chat App
 
+Warning: Just a little hackathon PoC, not safe or production ready at all!
+
 A Flask web application that integrates with a large language model (LLM) via the Ollama API to verify a user’s identity for Safe key recovery. Once verified, the app automatically triggers a multisig owner switch on a Gnosis Safe using the safe‑eth‑py library.
 
 
